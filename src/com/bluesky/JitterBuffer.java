@@ -14,9 +14,9 @@ public class JitterBuffer<E> {
     private final int mDepth;
     private final long mIntervalNanos;
 
-    private short mDequeueSequence;
+    private long mDequeueSequence;
 
-    private short mFirstSequence;
+    private long mFirstSequence;
     private long mFirstArrivalNanos;
     private boolean mAwaitFirstObject = true;
 
@@ -67,10 +67,10 @@ public class JitterBuffer<E> {
                 return 0;
             }
 
-            long compareeExpectedDequeueNanos = ((SequenceObject) o).mExpectedDequeueNanos;
-            if( mExpectedDequeueNanos == compareeExpectedDequeueNanos ){
+            long compareeSequence = ((SequenceObject) o).mSequence;
+            if( mSequence == compareeSequence ){
                 return 0;
-            } else if( mExpectedDequeueNanos < compareeExpectedDequeueNanos ){
+            } else if( mSequence < compareeSequence ){
                 return -1;
             } else {
                 return 1;
@@ -103,7 +103,7 @@ public class JitterBuffer<E> {
         if( mAwaitFirstObject == true ){
             mAwaitFirstObject = false;
             mFirstArrivalNanos = System.nanoTime();
-            mFirstSequence = sequence;
+            mDequeueSequence = mFirstSequence = sequence;
             SequenceObject<E> wrapper = this.new SequenceObject<E>(object, sequence);
             return mQueue.offer(wrapper);
 
@@ -126,7 +126,8 @@ public class JitterBuffer<E> {
      *  caller may be blocked until timeout expires.
      *
      *  NOTE: if we can't get expected object from the queue, we still increment sequence#,
-     *        because that means the expected object had never been enqueued in time.
+     *        because that means the expected object had never been enqueued in time. Because
+     *        of this reason, caller shall set parameters carefully.
      *
      * @param timeout
      * @param unit
@@ -143,4 +144,11 @@ public class JitterBuffer<E> {
         }
     }
 
+    /**
+     * reset the jitter buffer, and discard any containees.
+     */
+    public void reset(){
+        //TODO:
+        mAwaitFirstObject = true;
+    }
 }
