@@ -97,6 +97,10 @@ public class JitterBuffer<E> {
     /** offer SequenceObject into JitterBuffer. JitterBuffer may discard/reject the offer
      *  sliently, if the object is earlier than the last dequenced object, orif the same object
      *  had already enqueued.
+     *
+     *  TODO: right now, to simpilfy the imp, I didn't consider to handle seq# overflow yet,
+     *  so, the 1st seq would be better being a small value, i.e. 0.
+     *
      * @return true if JitterBuffer accepted the offer
      */
     public boolean offer(E object, short sequence){
@@ -108,7 +112,7 @@ public class JitterBuffer<E> {
             return mQueue.offer(wrapper);
 
         } else {
-            if( sequence <= mDequeueSequence ){
+            if( sequence < mDequeueSequence ){
                 return false;
             }
 
@@ -133,15 +137,29 @@ public class JitterBuffer<E> {
      * @param unit
      * @return the oldest sequenceObject if it has expired, otherwise return null
      */
-    public E poll(long timeout, TimeUnit unit){
+    private E poll(long timeout, TimeUnit unit){
         try {
             SequenceObject<E> wrapper = mQueue.poll(timeout, unit);
-            return wrapper.getObject();
+            if( wrapper == null ){
+                return null;
+            } else {
+                return wrapper.getObject();
+            }
         } catch (InterruptedException e){
             return null;
         } finally {
             ++mDequeueSequence;
         }
+    }
+
+    public E poll(){
+        long timeout;
+        if( mDequeueSequence == mFirstSequence ){
+            timeout = mIntervalNanos * mDepth;
+        } else {
+            timeout = mIntervalNanos;
+        }
+        return poll(timeout, TimeUnit.NANOSECONDS);
     }
 
     /**
