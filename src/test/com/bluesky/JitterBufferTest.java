@@ -135,5 +135,5 @@ public class JitterBufferTest extends TestCase {
     static final long INTERVAL = 20;
     static final TimeUnit UNIT  = TimeUnit.MILLISECONDS;
 
-    static final long MARGIN = INTERVAL * 20 / 100;
+    static final long MARGIN = INTERVAL * 30 / 100;
 }
