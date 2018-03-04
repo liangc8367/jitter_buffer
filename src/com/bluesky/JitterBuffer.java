@@ -3,6 +3,8 @@ package com.bluesky;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * JitterBuffer, simple, to mitigate network jitter, able to absorb
@@ -20,19 +22,19 @@ public class JitterBuffer<E> {
     private long mFirstArrivalNanos;
     private boolean mAwaitFirstObject = true;
 
-    private final DelayQueue<SequenceObject> mQueue = new DelayQueue<SequenceObject>();;
+    private final DelayQueue<SequenceObject> mQueue = new DelayQueue<SequenceObject>();
+    private final Lock mLock = new ReentrantLock();
 
     /** object that can be accepted by JitterBuffer */
-    private class SequenceObject<E> implements Delayed {
+    private static class SequenceObject<E> implements Delayed {
         private short mSequence;
         private long mExpectedDequeueNanos;
         private final E mObject;
 
-        public SequenceObject(final E object, short sequence ){
+        public SequenceObject(final E object, short sequence, long expectedDequeueNanos ){
             mObject = object;
             mSequence = sequence;
-            mExpectedDequeueNanos =
-                    mFirstArrivalNanos + mIntervalNanos * (mSequence + mDepth - mFirstSequence);
+            mExpectedDequeueNanos = expectedDequeueNanos;
         }
 
         public E getObject(){
@@ -78,7 +80,7 @@ public class JitterBuffer<E> {
         }
 
         /** method used by container to check the existance of same object
-         *
+         * TODO: add hashCode()
          * @param obj
          * @return
          */
@@ -104,24 +106,33 @@ public class JitterBuffer<E> {
      * @return true if JitterBuffer accepted the offer
      */
     public boolean offer(E object, short sequence){
-        if( mAwaitFirstObject == true ){
-            mAwaitFirstObject = false;
-            mFirstArrivalNanos = System.nanoTime();
-            mDequeueSequence = mFirstSequence = sequence;
-            SequenceObject<E> wrapper = this.new SequenceObject<E>(object, sequence);
-            return mQueue.offer(wrapper);
+        mLock.lock();
+        try {
+            if (mAwaitFirstObject == true) {
+                mAwaitFirstObject = false;
+                mFirstArrivalNanos = System.nanoTime();
+                mDequeueSequence = mFirstSequence = sequence;
 
-        } else {
-            if( sequence < mDequeueSequence ){
-                return false;
+                long exp = mFirstArrivalNanos + mIntervalNanos * (sequence + mDepth - mFirstSequence);
+
+                SequenceObject<E> wrapper = new SequenceObject<E>(object, sequence, exp);
+                return mQueue.offer(wrapper);
+
+            } else {
+                if (sequence < mDequeueSequence) {
+                    return false;
+                }
+
+                long exp = mFirstArrivalNanos + mIntervalNanos * (sequence + mDepth - mFirstSequence);
+                SequenceObject<E> wrapper = new SequenceObject<E>(object, sequence, exp);
+                if (mQueue.contains(wrapper)) {
+                    return false;
+                }
+
+                return mQueue.offer(wrapper);
             }
-
-            SequenceObject<E> wrapper = this.new SequenceObject<E>(object, sequence);
-            if(mQueue.contains(wrapper)){
-                return false;
-            }
-
-            return mQueue.offer(wrapper);
+        } finally {
+            mLock.unlock();
         }
     }
 
@@ -146,7 +157,7 @@ public class JitterBuffer<E> {
                 return wrapper.getObject();
             }
         } catch (InterruptedException e){
-            return null;
+            return null;  //TODO: throw exception
         } finally {
             ++mDequeueSequence;
         }
@@ -165,8 +176,17 @@ public class JitterBuffer<E> {
     /**
      * reset the jitter buffer, and discard any containees.
      */
-    public void reset(){
-        //TODO:
-        mAwaitFirstObject = true;
+    public void reset() {
+        mLock.lock();
+        try {
+            mQueue.clear();
+            mAwaitFirstObject = true;
+        } finally {
+            mLock.unlock();
+        }
+    }
+
+    public long getDequeueSequence(){
+        return mDequeueSequence;
     }
 }
